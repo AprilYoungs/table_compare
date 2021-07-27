@@ -1,20 +1,37 @@
 #!/bin/bash
 
-db1=test
-db2=test
-tabs1=(tab1 tab2)
-tabs2=(tab3 tab4)
-
-tabs1_c=${#tabs1[@]}
-tabs2_c=${#tabs2[@]}
-
-if [ $tabs1_c -ne $tabs2_c ];then
-    echo "tables number should be paired!"
-    echo "But I got $tabs1_c and $tabs2_c"
+if [ $# -eq 0 ]; then
+    echo "please run with a config file like:"
+    echo "db1=test"
+    echo "db2=test"
+    echo "tabs1=tab1,tab2"
+    echo "tabs2=tab3,tab4"
     exit 1
 fi
 
-## 比较表1的列是否都在表2中存在,并把结果存在tab中缓存
+config_file=$1
+
+# get params from config files
+db1=$(sed -n '/^db1=/s/db1=//p' $config_file | awk '{print $1}')
+db2=$(sed -n '/^db2=/s/db2=//p' $config_file | awk '{print $1}')
+tabs1=($(sed -n '/^tabs1=/s/tabs1=//p' $config_file | awk 'BEGIN{FS=","}{for(i=1;i<=NF;i++) print $i}'))
+tabs2=($(sed -n '/^tabs2=/s/tabs2=//p' $config_file | awk 'BEGIN{FS=","}{for(i=1;i<=NF;i++) print $i}'))
+
+echo "db1=$db1,db2=$db2"
+echo "input tables left: ${tabs1[@]}"
+echo "input tables right: ${tabs2[@]}"
+
+tabs1_len=${#tabs1[@]}
+tabs2_len=${#tabs2[@]}
+
+if [ $tabs1_len -ne $tabs2_len ];then
+    echo "tables number should be paired!"
+    echo "But I got $tabs1_len and $tabs2_len"
+    exit 1
+fi
+
+
+## compare table 1 with table 2 with column,dateType, and cache the result
 colums_compare(){
     local cols1=$1
     local cols2=$2
@@ -28,6 +45,7 @@ colums_compare(){
     for c1 in $cols1;do 
         isShared="Unique"
         for c2 in $cols2;do  
+            # more detail compare and update the flag if you like
             if [ "$c1" = "$c2" ];then
                 isShared="Shared"
                 break
@@ -37,10 +55,10 @@ colums_compare(){
     done
 }
 
-## 合并两个表的差异文件到一个csv
+## merge two tables' compare result into one csv file 
 export_result(){
     local tab_result1=$1
-    local tab_result2=$1
+    local tab_result2=$2
     local tab1=$3
     local tab2=$4
 
@@ -58,13 +76,17 @@ export_result(){
     fi 
 
     # prepare result file
-    result_file="result/${tab1}_${tab2}.csv"
+    local result_file="result/${tab1}_${tab2}.csv"
     if [ -f $result_file ]; then
         rm -f $result_file 
     fi
     touch $result_file
 
-    echo "${tab1}_col,${tab1}_date_type,${tab1}_isShared,${tab2}_col,${tab2}_date_type,${tab2}_isShared" >> $result_file
+    # header 
+    echo "${tab1},date_type,is_shared,${tab2},date_type,is_shared" >> $result_file
+
+    # escape with the globe i
+    local i
     for ((i=1;i<=max_len;i++));do 
         if (( $i <= $tab_len1 && $i <= $tab_len2 )); then 
             left=$(sed -n "${i}p" $tab_result1)
@@ -86,7 +108,7 @@ export_result(){
 # tmp dir 
 test -d tmp || mkdir tmp
 
-for ((i=0;i<$tabs1_c;i++));do
+for ((i=0;i<$tabs1_len;i++));do
     tab1=${tabs1[$i]}
     tab2=${tabs2[$i]}
     echo "dealing with ${db1}.${tab1}"
@@ -95,8 +117,9 @@ for ((i=0;i<$tabs1_c;i++));do
     hive -e "desc ${db1}.${tab1}" > tmp/$tab1.txt
     hive -e "desc ${db2}.${tab2}" > tmp/$tab2.txt
 
-    cols1=$(cat tmp/$tab1.txt | awk 'BEGIN{OFS=","}{if(NR>1) {print tolower($1),tolower($2)}}')
-    cols2=$(cat tmp/$tab2.txt | awk 'BEGIN{OFS=","}{if(NR>1) {print tolower($1),tolower($2)}}')
+    # add "" to datatype to avoid unexpected csv format error
+    cols1=$(cat tmp/$tab1.txt | awk 'BEGIN{OFS=","}{if(NR>1) {print tolower($1),"\"" tolower($2) "\""}}')
+    cols2=$(cat tmp/$tab2.txt | awk 'BEGIN{OFS=","}{if(NR>1) {print tolower($1),"\"" tolower($2) "\""}}')
 
     tab_result1="tmp/${tab1}.result"
     tab_result2="tmp/${tab2}.result"
@@ -108,9 +131,16 @@ for ((i=0;i<$tabs1_c;i++));do
     echo "exporting result....."
 
     export_result $tab_result1 $tab_result2 ${tab1} ${tab2}
-    echo "why---->"$?
+    
 done
 
 #rm -rf tmp
 
-echo "all done, enjoy...":
+echo "all done, enjoy..."
+
+cd result
+echo "result files...."
+ls
+
+# send result files back to local if support
+sz *.csv
