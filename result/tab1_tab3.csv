@@ -1,0 +1,5 @@
+tab1,date_type,is_shared,tab3,date_type,is_shared
+var1,"string",Shared,var1,"string",Shared
+var2,"string",Unique,var3,"string",Shared
+var3,"string",Shared,var4,"string",Shared
+var4,"string",Shared,var5,"string",Unique
